@@ -1,0 +1,148 @@
+#!/bin/sh
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+# Copyright 2023 Jeremy Brubaker <jbru362@gmail.com>
+#
+# abstract: use https://ntfy.sh to send and receive encrypted messages
+#
+# Documentation {{{1
+#
+VERSION='1.0'
+
+print_help() (
+    [ -n "$1" ] && printf "%s\n" "$1"
+
+    cat <<END
+Usage: $0 [OPTION] send [SALT] [PUBKEY] [FILE]...
+       $0 [OPTION] recv [SALT] [PRIVKEY]
+
+Use https://ntfy.sh to send and receive encrypted messages
+
+SALT is required and used to make the ntfy.sh topic ID more "random"
+
+Sending messages:
+
+PUBKEY is required and is the path to the recipients age(1) public key.
+Additional parameters are paths to files to encrypt and send. Files are cat'ed
+together. If no filenames are given, stdin is read
+
+Receiving messages:
+
+When reading a message, PRIVKEY is required and is the path to the your age(1)
+private key. The decrypted messages will be sent to stdout
+
+  -h   	    display this help and exit
+  -v        output version information and exit
+END
+) >&2
+
+print_version() (
+    cat <<END
+$0 $VERSION
+Copyright (C) 2023
+License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+
+Written by Jeremy Brubaker.
+END
+) >&2
+
+# Process options {{{1
+#
+while getopts ':hv' c; do
+    case $c in
+        h) print_help; exit 0 ;;
+        v) print_version; exit 0 ;;
+        ?) print_help "Invalid option: -$OPTARG";  exit 1 ;;
+    esac
+done
+shift $((OPTIND-1))
+
+case $1 in
+    send | recv) cmd=$1; shift ;;
+    *)
+        printf "Invalid command: %s\n" "$1" >&2
+        print_help
+        exit 1
+        ;;
+esac
+
+if [ -z "$1" ]; then
+    printf "No salt provided\n" >&2
+    exit 1
+else
+    salt=$1
+    shift
+fi
+
+if ! [ -f "$1" ]; then
+    printf "Cannot read keyfile: %s\n" "$1"
+    exit 1
+else
+    keyfile=$1
+    shift
+fi
+
+# Functions {{{1
+#
+# getid {{{2
+#
+# @description Return a string to use as a ntfy.sh topic ID
+#
+# @arg $1 string String to use to "salt" the otherwise non-random ID
+#
+# @return string "random" string
+#
+getid() {
+    printf %s%s "$1" "$(date --utc +%H%b%Y)" | md5sum | cut -d' ' -f1
+}
+
+# have {{{2
+#
+# @description Check for a binary in PATH
+#
+# @arg $1 string Binary to search for
+#
+# @exitcode true if binary is in PATH, otherwise false
+#
+have() { command -v "$1" >/dev/null; }
+
+# Main {{{1
+#
+for b in age base64 md5sum; do
+    if ! have "$b"; then
+        printf "'%s' is required and not found\n" "$b"
+    fi
+done
+
+send() {
+    cat "$@" |
+        age -r "$(cat "$keyfile")" |
+        base64 |
+        curl -d@- "ntfy.sh/$(getid "$salt")"
+}
+
+recv() {
+    curl -s "ntfy.sh/$(getid "$salt")/raw?poll=1" |
+        xargs -I{} sh -c "
+            echo {} |
+                base64 -d |
+                age -d -i '$keyfile' 2>/dev/null;
+                            exit 0"
+}
+
+$cmd "$@"
+
