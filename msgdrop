@@ -17,6 +17,9 @@
 #
 # abstract: use https://ntfy.sh to send and receive encrypted messages
 #
+# Defaults {{{1
+DFLT_KEYPAIR=msgdrop
+
 # Documentation {{{1
 #
 VERSION='1.0'
@@ -25,26 +28,26 @@ print_help() (
     [ -n "$1" ] && printf "%s\n" "$1"
 
     cat <<END
-Usage: $0 [OPTION] send [SALT] [PUBKEY] [FILE]...
-       $0 [OPTION] recv [SALT] [PRIVKEY]
+Usage: $0 [OPTION] send [KEYNAME] [FILE]...
+       $0 [OPTION] recv
+       $0 [OPTION] genkey
 
 Use https://ntfy.sh to send and receive encrypted messages
 
-SALT is required and used to make the ntfy.sh topic ID more "random"
-
 Sending messages:
 
-PUBKEY is required and is the path to the recipients age(1) public key.
-Additional parameters are paths to files to encrypt and send. Files are cat'ed
-together. If no filenames are given, stdin is read
+KEYNAME is required and is the path to the recipients age(2) public key, without
+any extension.  Additional parameters are paths to files to encrypt and send.
+Files are cat'ed together. If no filenames are given, stdin is read
 
 Receiving messages:
 
-When reading a message, PRIVKEY is required and is the path to the your age(1)
-private key. The decrypted messages will be sent to stdout
+When reading a message the decrypted messages will be sent to stdout
 
-  -h   	    display this help and exit
-  -v        output version information and exit
+  -k [KEYPAIR] KEYPAIR is the path to your age(1) keypair, minus extension.
+                 (Default = $DFLT_KEYPAIR)
+  -h   	       display this help and exit
+  -v           output version information and exit
 END
 ) >&2
 
@@ -62,8 +65,10 @@ END
 
 # Process options {{{1
 #
-while getopts ':hv' c; do
+keypair=$DFLT_KEYPAIR
+while getopts ':k:hv' c; do
     case $c in
+        k) keypair=$OPTARG ;;
         h) print_help; exit 0 ;;
         v) print_version; exit 0 ;;
         ?) print_help "Invalid option: -$OPTARG";  exit 1 ;;
@@ -72,7 +77,22 @@ done
 shift $((OPTIND-1))
 
 case $1 in
-    send | recv) cmd=$1; shift ;;
+    send)
+        cmd=$1; shift
+        if ! [ -r "$1.pub" ]; then
+            printf "Cannot read recipient key: %s\n" "$1"
+            exit 1
+        fi
+        shift
+        ;;
+    recv)
+        cmd=$1; shift
+        if ! [ -r "$keypair.priv" ] || ! [ -r "$keypair.pub" ]; then
+            printf "Cannot read your keypair: %s\n" "$keypair"
+            exit 1
+        fi
+        ;;
+    genkey) cmd=$1; shift ;;
     *)
         printf "Invalid command: %s\n" "$1" >&2
         print_help
@@ -80,34 +100,18 @@ case $1 in
         ;;
 esac
 
-if [ -z "$1" ]; then
-    printf "No salt provided\n" >&2
-    exit 1
-else
-    salt=$1
-    shift
-fi
-
-if ! [ -f "$1" ]; then
-    printf "Cannot read keyfile: %s\n" "$1"
-    exit 1
-else
-    keyfile=$1
-    shift
-fi
-
 # Functions {{{1
 #
 # getid {{{2
 #
 # @description Return a string to use as a ntfy.sh topic ID
 #
-# @arg $1 string String to use to "salt" the otherwise non-random ID
+# @arg $1 string Path to keyfile to use as topic ID
 #
 # @return string "random" string
 #
 getid() {
-    printf %s%s "$1" "$(date --utc +%H%b%Y)" | md5sum | cut -d' ' -f1
+    md5sum < "$1" | cut -d' ' -f1
 }
 
 # have {{{2
@@ -130,18 +134,24 @@ done
 
 send() {
     cat "$@" |
-        age -r "$(cat "$keyfile")" |
+        age -R "$keypair.pub" |
         base64 |
-        curl -d@- "ntfy.sh/$(getid "$salt")"
+        curl -d@- "ntfy.sh/$(getid "$keypair.pub")" # >/dev/null
 }
 
 recv() {
-    curl -s "ntfy.sh/$(getid "$salt")/raw?poll=1" |
+    curl -s "ntfy.sh/$(getid "$keypair.pub")/raw?poll=1" |
         xargs -I{} sh -c "
             echo {} |
                 base64 -d |
-                age -d -i '$keyfile' 2>/dev/null;
+                age -d -i '$keypair.priv' 2>/dev/null;
                             exit 0"
+}
+
+genkey() {
+    > "$keypair.priv"
+    chmod 0600 "$keypair.priv"
+    age-keygen 2>/dev/null | tee "$keypair.priv" | age-keygen -y > "$keypair.pub"
 }
 
 $cmd "$@"
