@@ -36,33 +36,66 @@ DFLT_DELAY=1
 VERSION='1.0'
 
 print_help() (
-    [ -n "$1" ] && printf "%s\n" "$1"
+    [ -n "$2" ] && printf "%s\n" "$2"
+    case $1 in
+        send) # {{{
+            cat <<END
+Usage: $0 send [OPTION] [KEYNAME] [FILE]...
 
-    cat <<END
-Usage: $0 [OPTION] send [KEYNAME] [FILE]...
-       $0 [OPTION] recv
-       $0 [OPTION] genkey
+Encrypt and send the cat'd contents of [FILE]... or stdin if no files are given
 
-Use https://ntfy.sh to send and receive encrypted messages
+KEYNAME is required and is the path to the recipients age(1) public key, without
+any extension
 
-Sending messages:
-
-KEYNAME is required and is the path to the recipients age(2) public key, without
-any extension.  Additional parameters are paths to files to encrypt and send.
-Files are cat'ed together. If no filenames are given, stdin is read
-
-Receiving messages:
-
-When reading a message the decrypted messages will be sent to stdout
-
-  -k [KEYPAIR] KEYPAIR is the path to your age(1) keypair, minus extension.
-                 (Default = $DFLT_KEYPAIR)
+Options:
   -d [DELAY]   seconds to delay between successive message chunks (Default = $DFLT_DELAY)
   -l [LENGTH]  maximum length of a message chunk. Must be between $MIN_MSGLEN and $MAX_MSGLEN
                  (Default = $DFLT_MSGLEN)
   -h   	       display this help and exit
-  -v           output version information and exit
 END
+            ;; # }}}
+        recv) # {{{
+            cat <<END
+Usage: $0 recv [OPTION] -k [KEYPAIR]
+
+Read messages and send them to stdout
+
+Options:
+  -k [KEYPAIR] KEYPAIR is the path to the keypair to use for decryption, minus
+                  extension. (Default = $DFLT_KEYPAIR)
+  -h   	       display this help and exit
+END
+            ;; # }}}
+        genkey) # {{{
+            cat <<END
+Usage: $0 genkey [OPTION]
+
+Create a keypair
+
+Options:
+  -k [KEYPAIR] the created keypair will be named KEYPAIR.{priv,pub}
+                 (Default = $DFLT_KEYPAIR)
+  -h   	       display this help and exit
+
+END
+            ;; # }}}
+        *) # {{{
+            cat <<END
+Usage: $0 [OPTION] [COMMAND]
+
+Use https://ntfy.sh to send and receive encrypted messages
+
+Options:
+  -h   	       display this help and exit
+  -v           output version information and exit
+
+Commands:
+  send
+  recv
+  genkey
+END
+        ;; # }}}
+    esac
 ) >&2
 
 print_version() (
@@ -77,45 +110,72 @@ Written by Jeremy Brubaker.
 END
 ) >&2
 
-# Process options {{{1
+# Process command line {{{1
 #
-keypair=$DFLT_KEYPAIR
-msglen=$DFLT_MSGLEN
-delay=$DFLT_DELAY
-while getopts ':k:d:l:hv' c; do
+while getopts ':hv' c; do
     case $c in
-        k) keypair=$OPTARG ;;
-        d) delay=$OPTARG ;;
-        l) msglen=$OPTARG ;;
         h) print_help; exit 0 ;;
         v) print_version; exit 0 ;;
-        ?) print_help "Invalid option: -$OPTARG";  exit 1 ;;
+        ?) print_help "" "Invalid option: -$OPTARG";  exit 1 ;;
     esac
 done
 shift $((OPTIND-1))
 
-if [ "$msglen" -gt "$MAX_MSGLEN" ] || [ "$msglen" -lt "$MIN_MSGLEN" ]; then
-    msglen=$MIN_MSGLEN
-fi
-[ "$delay" -lt "$MIN_DELAY" ] && delay=$MIN_DELAY
-
 case $1 in
     send)
         cmd=$1; shift
-        if ! [ -r "$1.pub" ]; then
-            printf "Cannot read recipient key: %s\n" "$1"
+        msglen=$DFLT_MSGLEN
+        delay=$DFLT_DELAY
+        while getopts ':d:l:h' c; do
+            case $c in
+                d) delay=$OPTARG ;;
+                l) msglen=$OPTARG ;;
+                h) print_help send; exit 0 ;;
+                ?) print_help "Invalid option: -$OPTARG";  exit 1 ;;
+            esac
+        done
+        shift $((OPTIND-1))
+        if [ "$msglen" -gt "$MAX_MSGLEN" ] || [ "$msglen" -lt "$MIN_MSGLEN" ]; then
+            msglen=$MIN_MSGLEN
+        fi
+        [ "$delay" -lt "$MIN_DELAY" ] && delay=$MIN_DELAY
+
+        keypair=$1
+        if ! [ -r "$keypair.pub" ]; then
+            printf "Cannot read recipient key: %s\n" "$keypair"
             exit 1
         fi
         shift
         ;;
     recv)
         cmd=$1; shift
+        keypair=$DFLT_KEYPAIR
+        while getopts ':k:h' c; do
+            case $c in
+                k) keypair=$OPTARG ;;
+                h) print_help recv; exit 0 ;;
+                ?) print_help "Invalid option: -$OPTARG";  exit 1 ;;
+            esac
+        done
+        shift $((OPTIND-1))
+
         if ! [ -r "$keypair.priv" ] || ! [ -r "$keypair.pub" ]; then
             printf "Cannot read your keypair: %s\n" "$keypair"
             exit 1
         fi
         ;;
-    genkey) cmd=$1; shift ;;
+    genkey)
+        cmd=$1; shift
+        keypair=$DFLT_KEYPAIR
+        while getopts ':k:h' c; do
+            case $c in
+                k) keypair=$OPTARG ;;
+                h) print_help genkey; exit 0 ;;
+                ?) print_help "Invalid option: -$OPTARG";  exit 1 ;;
+            esac
+        done
+        shift $((OPTIND-1))
+        ;;
     *)
         printf "Invalid command: %s\n" "$1" >&2
         print_help
@@ -133,9 +193,7 @@ esac
 #
 # @return string "random" string
 #
-getid() {
-    md5sum < "$1" | cut -d' ' -f1
-}
+getid() { md5sum < "$1" | cut -d' ' -f1; }
 
 # have {{{2
 #
@@ -147,14 +205,19 @@ getid() {
 #
 have() { command -v "$1" >/dev/null; }
 
-# Main {{{1
+# send {{{2
 #
-for b in age base64 md5sum; do
-    if ! have "$b"; then
-        printf "'%s' is required and not found\n" "$b"
-    fi
-done
-
+# @description Encrypt and send contents of files using ntfy.sh
+#
+# @arg $@ list of filenames to encrypt and send. Use stdin if no filenames are
+#         given. The entire message can be broken into chunks
+#
+# @global keypair string Path to recipient's public key, minus extension
+# @global msglen  int    Size of input message chunks
+# @global delay   int    Seconds to delay between sending message chunks
+#
+# @return string "random" string
+#
 send() {
     cat "$@" |
         while s=$(dd ibs=1 count="$msglen" 2>/dev/null | base64); do
@@ -168,6 +231,16 @@ send() {
             curl -d@- ntfy.sh/$(getid $keypair.pub)"
 }
 
+# recv {{{2
+#
+# @description Read and decrypt ntfy.sh messages
+#
+# @noarg
+#
+# @global keypair string Path to your keypair
+#
+# @stdout Decrypted messages
+#
 recv() {
     curl -s "ntfy.sh/$(getid "$keypair.pub")/raw?poll=1" |
         xargs -I{} sh -c "
@@ -178,11 +251,27 @@ recv() {
             exit 0"
 }
 
+# genkey {{{2
+#
+# @description Generate an age(1) keypair
+#
+# @noarg
+#
+# @global keypair string Path to keypair to create, minus extension
+#
 genkey() {
     > "$keypair.priv"
     chmod 0600 "$keypair.priv"
     age-keygen 2>/dev/null | tee "$keypair.priv" | age-keygen -y > "$keypair.pub"
 }
+
+# Main {{{1
+#
+for b in age base64 md5sum; do
+    if ! have "$b"; then
+        printf "'%s' is required and not found\n" "$b"
+    fi
+done
 
 $cmd "$@"
 
