@@ -18,7 +18,18 @@
 # abstract: use https://ntfy.sh to send and receive encrypted messages
 #
 # Defaults {{{1
+#
+# Input data increases in size before sending because it is base64-encoded,
+# encrypted and base64-encoded again. MAX_MSGLEN is based on how much of that
+# encoded data can be sent at once. It is slightly lower than what ntfy.sh
+# actually accepts
+MAX_MSGLEN=900
+MIN_MSGLEN=50
+MIN_DELAY=0
+
 DFLT_KEYPAIR=msgdrop
+DFLT_MSGLEN=140
+DFLT_DELAY=1
 
 # Documentation {{{1
 #
@@ -46,6 +57,9 @@ When reading a message the decrypted messages will be sent to stdout
 
   -k [KEYPAIR] KEYPAIR is the path to your age(1) keypair, minus extension.
                  (Default = $DFLT_KEYPAIR)
+  -d [DELAY]   seconds to delay between successive message chunks (Default = $DFLT_DELAY)
+  -l [LENGTH]  maximum length of a message chunk. Must be between $MIN_MSGLEN and $MAX_MSGLEN
+                 (Default = $DFLT_MSGLEN)
   -h   	       display this help and exit
   -v           output version information and exit
 END
@@ -66,15 +80,24 @@ END
 # Process options {{{1
 #
 keypair=$DFLT_KEYPAIR
-while getopts ':k:hv' c; do
+msglen=$DFLT_MSGLEN
+delay=$DFLT_DELAY
+while getopts ':k:d:l:hv' c; do
     case $c in
         k) keypair=$OPTARG ;;
+        d) delay=$OPTARG ;;
+        l) msglen=$OPTARG ;;
         h) print_help; exit 0 ;;
         v) print_version; exit 0 ;;
         ?) print_help "Invalid option: -$OPTARG";  exit 1 ;;
     esac
 done
 shift $((OPTIND-1))
+
+if [ "$msglen" -gt "$MAX_MSGLEN" ] || [ "$msglen" -lt "$MIN_MSGLEN" ]; then
+    msglen=$MIN_MSGLEN
+fi
+[ "$delay" -lt "$MIN_DELAY" ] && delay=$MIN_DELAY
 
 case $1 in
     send)
@@ -134,18 +157,25 @@ done
 
 send() {
     cat "$@" |
-        age -R "$keypair.pub" |
-        base64 |
-        curl -d@- "ntfy.sh/$(getid "$keypair.pub")" # >/dev/null
+        while s=$(dd ibs=1 count="$msglen" 2>/dev/null | base64); do
+            [ -z "$s" ] && break
+            echo "$s"
+            sleep "$delay"
+        done | xargs -I{} sh -c "
+            echo {} |
+            age -R $keypair.pub |
+            base64 |
+            curl -d@- ntfy.sh/$(getid $keypair.pub)"
 }
 
 recv() {
     curl -s "ntfy.sh/$(getid "$keypair.pub")/raw?poll=1" |
         xargs -I{} sh -c "
             echo {} |
-                base64 -d |
-                age -d -i '$keypair.priv' 2>/dev/null;
-                            exit 0"
+            base64 -d |
+            age -d -i '$keypair.priv' 2>/dev/null |
+            base64 -d
+            exit 0"
 }
 
 genkey() {
