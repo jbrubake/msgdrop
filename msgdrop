@@ -61,6 +61,7 @@ Usage: $0 recv [OPTION] -k [KEYPAIR]
 Read messages and send them to stdout
 
 Options:
+  -a           read all messages
   -k [KEYPAIR] KEYPAIR is the path to the keypair to use for decryption, minus
                   extension. (Default = $DFLT_KEYPAIR)
   -h   	       display this help and exit
@@ -149,9 +150,11 @@ case $1 in
         ;;
     recv)
         cmd=$1; shift
+        all=
         keypair=$DFLT_KEYPAIR
-        while getopts ':k:h' c; do
+        while getopts ':ak:h' c; do
             case $c in
+                a) all=y ;;
                 k) keypair=$OPTARG ;;
                 h) print_help recv; exit 0 ;;
                 ?) print_help "Invalid option: -$OPTARG";  exit 1 ;;
@@ -237,18 +240,26 @@ send() {
 #
 # @noarg
 #
+# @global all     string Get all messages if == "y"
 # @global keypair string Path to your keypair
 #
 # @stdout Decrypted messages
 #
 recv() {
-    curl -s "ntfy.sh/$(getid "$keypair.pub")/raw?poll=1" |
+    if [ -f "$keypair.mark" ] && [ "$all" != "y" ]; then
+        now=$(stat --printf %Y "$keypair.mark")
+        since="&since=$now"
+    fi
+
+    curl -s "ntfy.sh/$(getid "$keypair.pub")/raw?poll=1$since" |
         xargs -I{} sh -c "
             echo {} |
             base64 -d |
             age -d -i '$keypair.priv' 2>/dev/null |
             base64 -d
             exit 0"
+
+    touch "$keypair.mark"
 }
 
 # genkey {{{2

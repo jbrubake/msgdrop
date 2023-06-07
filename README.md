@@ -22,8 +22,8 @@ If no files are provided, standard input is read instead. The message will be
 broken into chunks in order to keep the individual message within the limits
 imposed by [ntfy.sh](https://ntfy.sh).
 
-`msgdrop recv` reads all messages in the topic, decrypts them using your public
-key, and sends them to standard output.
+`msgdrop recv` reads all unread messages in the topic, decrypts them using your
+public key, and sends them to standard output.
 
 # Options
 
@@ -39,6 +39,8 @@ key, and sends them to standard output.
 (Default = 140).
 
 ## recv command
+
+`-a` Read all messages
 
 `-k [KEYPAIR]` Use a different keypair name than the default. (Default =
 msgdrop).
@@ -62,11 +64,15 @@ topic ID.
 
 `msgdrop recv` 
 
-Read all messages, decrypting with your default key.
+Read unread messages, decrypting with your default key.
+
+`msgdrop recv -a`
+
+Read all messages, using your default key to decrypt.
 
 `msgdrop recv -k foo`
 
-Read all messages sent to `foo`, decrypting with your the `foo` key.
+Read unread messages sent to `foo`, decrypting with your the `foo` key.
 
 # Encryption
 
