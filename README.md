@@ -27,6 +27,8 @@ public key, and sends them to standard output.
 
 # Options
 
+`-d` Directory to save keypairs (default: `$XDG_CONFIG/msgdrop`)
+
 `-h` Print a help message and exit.
 
 `-v` Display version information.
