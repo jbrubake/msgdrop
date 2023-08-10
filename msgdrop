@@ -31,6 +31,8 @@ DFLT_KEYPAIR=msgdrop
 DFLT_MSGLEN=140
 DFLT_DELAY=1
 
+DFLT_KEYDIR=${XDG_CONFIG_HOME:-$HOME/.config}/msgdrop
+
 # Documentation {{{1
 #
 VERSION='1.0'
@@ -87,6 +89,7 @@ Usage: $0 [OPTION] [COMMAND]
 Use https://ntfy.sh to send and receive encrypted messages
 
 Options:
+  -d DIR       where to look for keypairs (default: $DFLT_KEYDIR)
   -h   	       display this help and exit
   -v           output version information and exit
 
@@ -113,14 +116,18 @@ END
 
 # Process command line {{{1
 #
-while getopts ':hv' c; do
+keydir=$DFLT_KEYDIR
+while getopts ':d:hv' c; do
     case $c in
+        d) keydir=$OPTARG ;;
         h) print_help; exit 0 ;;
         v) print_version; exit 0 ;;
         ?) print_help "" "Invalid option: -$OPTARG";  exit 1 ;;
     esac
 done
 shift $((OPTIND-1))
+
+[ -d "$keydir" ] || mkdir -p "$keydir"
 
 case $1 in
     send)
@@ -141,7 +148,7 @@ case $1 in
         fi
         [ "$delay" -lt "$MIN_DELAY" ] && delay=$MIN_DELAY
 
-        keypair=$1
+        keypair=$keydir/$1
         if ! [ -r "$keypair.pub" ]; then
             printf "Cannot read recipient key: %s\n" "$keypair"
             exit 1
@@ -162,6 +169,7 @@ case $1 in
         done
         shift $((OPTIND-1))
 
+        keypair=$keydir/$keypair
         if ! [ -r "$keypair.priv" ] || ! [ -r "$keypair.pub" ]; then
             printf "Cannot read your keypair: %s\n" "$keypair"
             exit 1
@@ -178,6 +186,7 @@ case $1 in
             esac
         done
         shift $((OPTIND-1))
+        keypair=$keydir/$keypair
         ;;
     *)
         printf "Invalid command: %s\n" "$1" >&2
