@@ -114,12 +114,25 @@ Written by Jeremy Brubaker.
 END
 ) >&2
 
+# Utility functions {{{1
+#
+isnum() {
+    case "${1#[-+]}" in
+        (*[!0-9]*|'') false ;;
+        (*) true ;;
+    esac
+}
+
+iswriteabledir() { [ -d "$1" ] && [ -w "$1" ]; }
+
+error() { printf "%s\n" "$1" >&2; exit 1; }
+
 # Process command line {{{1
 #
 keydir=$DFLT_KEYDIR
 while getopts ':d:hv' c; do
     case $c in
-        d) keydir=$OPTARG ;;
+        d) keydir=$OPTARG ; iswriteabledir "$keydir" || error "$keydir is not a writeable directory" ;;
         h) print_help; exit 0 ;;
         v) print_version; exit 0 ;;
         ?) print_help "" "Invalid option: -$OPTARG";  exit 1 ;;
@@ -136,8 +149,8 @@ case $1 in
         delay=$DFLT_DELAY
         while getopts ':d:l:h' c; do
             case $c in
-                d) delay=$OPTARG ;;
-                l) msglen=$OPTARG ;;
+                d) delay=$OPTARG ; isnum "$delay" || error "$delay is not a number" ;;
+                l) msglen=$OPTARG ; isnum "$msglen" || error "$msglen is not a number" ;;
                 h) print_help send; exit 0 ;;
                 ?) print_help "Invalid option: -$OPTARG";  exit 1 ;;
             esac
@@ -148,11 +161,9 @@ case $1 in
         fi
         [ "$delay" -lt "$MIN_DELAY" ] && delay=$MIN_DELAY
 
+        [ -n "$keypair" ] || error "No keypair provided"
         keypair=$keydir/$1
-        if ! [ -r "$keypair.pub" ]; then
-            printf "Cannot read recipient key: %s\n" "$keypair"
-            exit 1
-        fi
+        [ -r "$keypair.pub" ] ||  error "Cannot read recipient key: $keypair"
         shift
         ;;
     recv)
@@ -170,10 +181,8 @@ case $1 in
         shift $((OPTIND-1))
 
         keypair=$keydir/$keypair
-        if ! [ -r "$keypair.priv" ] || ! [ -r "$keypair.pub" ]; then
-            printf "Cannot read your keypair: %s\n" "$keypair"
-            exit 1
-        fi
+        [ -r "$keypair.priv" ] || [ -r "$keypair.pub" ] ||
+            error "Cannot read your keypair: $keypair"
         ;;
     genkey)
         cmd=$1; shift
@@ -288,9 +297,7 @@ genkey() {
 # Main {{{1
 #
 for b in age base64 md5sum; do
-    if ! have "$b"; then
-        printf "'%s' is required and not found\n" "$b"
-    fi
+    have "$b" || error "'$b' is required and not found"
 done
 
 $cmd "$@"
