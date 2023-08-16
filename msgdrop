@@ -249,7 +249,7 @@ send() {
             echo {} |
             age -R $keypair.pub |
             base64 |
-            curl -d@- ntfy.sh/$(getid $keypair.pub)"
+            curl -d@- ntfy.sh/$(getid "$keypair".pub)"
 }
 
 # recv {{{2
@@ -289,7 +289,7 @@ recv() {
 # @global keypair string Path to keypair to create, minus extension
 #
 genkey() {
-    > "$keypair.priv"
+    true > "$keypair.priv"
     chmod 0600 "$keypair.priv"
     age-keygen 2>/dev/null | tee "$keypair.priv" | age-keygen -y > "$keypair.pub"
 }
