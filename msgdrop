@@ -298,7 +298,7 @@ genkey() {
 
 # Main {{{1
 #
-for b in age base64 md5sum; do
+for b in age age-keygen base64 curl md5sum stat; do
     have "$b" || error "'$b' is required and not found"
 done
 
