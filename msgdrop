@@ -161,7 +161,7 @@ case $1 in
         fi
         [ "$delay" -lt "$MIN_DELAY" ] && delay=$MIN_DELAY
 
-        [ -n "$keypair" ] || error "No keypair provided"
+        [ -n "$1" ] || error "No keypair provided"
         keypair=$keydir/$1
         [ -r "$keypair.pub" ] ||  error "Cannot read recipient key: $keypair"
         shift
