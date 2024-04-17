@@ -277,7 +277,9 @@ recv() {
             base64 -d
             exit 0"
 
-    touch "$keypair.mark"
+    # Set mark file mtime to $now (after massaging its format)
+    now=$(echo "$now" | rev | cut -d' ' -f2- | rev)
+    touch -d "$now" "$keypair.mark"
 }
 
 # genkey {{{2
