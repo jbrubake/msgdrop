@@ -266,7 +266,12 @@ send() {
 recv() {
     if [ -f "$keypair.mark" ] && [ "$all" != "y" ]; then
         now=$(stat --printf %Y "$keypair.mark")
+        human_now=$(stat --printf %y "$keypair.mark")
         since="&since=$now"
+        # Set mark file mtime
+        touch -d "$human_now" "$keypair.mark"
+    else
+        touch "$keypair.mark"
     fi
 
     curl -s "ntfy.sh/$(getid "$keypair.pub")/raw?poll=1$since" |
@@ -276,10 +281,6 @@ recv() {
             age -d -i '$keypair.priv' 2>/dev/null |
             base64 -d
             exit 0"
-
-    # Set mark file mtime to $now (after massaging its format)
-    now=$(echo "$now" | rev | cut -d' ' -f2- | rev)
-    touch -d "$now" "$keypair.mark"
 }
 
 # genkey {{{2
